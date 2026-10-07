@@ -1,0 +1,17 @@
+# Secrets — never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+.env.bak
+
+# Her item list — local data, not code
+items.json
+items.json.*
+usage.json
+usage.json.*
