@@ -59,21 +59,17 @@ def openai_client() -> OpenAI:
 
 
 class Listing(BaseModel):
+    """Only what she can't do herself.
+
+    Brand, size, condition, material, colour and category are all dropdowns she
+    taps in Vinted's form — and the first four she tells us. Echoing them back
+    would be a loop, so they feed the description and are never output.
+    """
+
     title: str
     description_fr: str
     description_en: str
-    brand: Optional[str]
-    size: Optional[str]
-    category: Optional[str]
-    colour: Optional[str]
-    material: Optional[str]
-    condition: Literal[
-        "Neuf avec étiquette",
-        "Neuf sans étiquette",
-        "Très bon état",
-        "Bon état",
-        "Satisfaisant",
-    ]
+    parcel_size: Literal["Petit", "Moyen", "Grand"]
     price_low_eur: int
     price_high_eur: int
     notes: Optional[str]
@@ -106,12 +102,7 @@ FIXTURES: dict[type[BaseModel], BaseModel] = {
             "Wool blazer, straight cut, lightly structured shoulders. "
             "Worn a few times, no flaws. Size M, runs closer to a UK 10."
         ),
-        brand="Zara",
-        size="M",
-        category="Femmes > Vestes et manteaux > Blazers",
-        colour="Beige",
-        material="Laine",
-        condition="Très bon état",
+        parcel_size="Moyen",
         price_low_eur=18,
         price_high_eur=25,
         notes=None,
@@ -232,14 +223,6 @@ def with_banner(body: str) -> str:
 
 
 def render_listing(item: Listing) -> str:
-    attrs = [
-        ("Brand", item.brand),
-        ("Size", item.size),
-        ("Condition", item.condition),
-        ("Category", item.category),
-        ("Colour", item.colour),
-        ("Material", item.material),
-    ]
     lines = [
         "<b>Title</b>",
         code(item.title),
@@ -247,13 +230,9 @@ def render_listing(item: Listing) -> str:
         "<b>Description</b>",
         code(f"{item.description_fr}\n\n{item.description_en}"),
         "",
-        "<b>Vinted fields</b>",
-        "\n".join(
-            f"{label}: {html.escape(value)}" for label, value in attrs if value
-        ),
-        "",
-        f"<b>Suggested price</b> {item.price_low_eur}–{item.price_high_eur} €"
-        " <i>(estimate — adjust it)</i>",
+        f"<b>Parcel</b> {item.parcel_size}   ·   "
+        f"<b>Price</b> {item.price_low_eur}–{item.price_high_eur} € "
+        "<i>(estimate)</i>",
     ]
     if item.notes:
         lines += ["", f"⚠️ {html.escape(item.notes)}"]
@@ -346,8 +325,14 @@ async def on_new(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.chat_data["mode"] = "new_item"
     context.chat_data.pop("followup_item", None)
     await update.message.reply_text(
-        "New item. Send the photos (up to 8). Add a caption if you want to tell me "
-        "the brand, size, material, or a flaw.",
+        "<b>New item.</b> Send the photos (up to 8) with a caption telling me what "
+        "I can't see:\n\n"
+        "• brand\n• size, and whether it runs true\n• condition\n"
+        "• material\n• any flaw\n\n"
+        "Free-form, any order, skip what you don't know:\n"
+        "<code>Zara / M, runs small / très bon état / laine / petit trou sous le "
+        "bras gauche</code>",
+        parse_mode="HTML",
         reply_markup=MENU,
     )
 
@@ -471,11 +456,12 @@ async def flush_photos(context: ContextTypes.DEFAULT_TYPE) -> None:
             listing = await asyncio.to_thread(
                 ask_model, LISTING_SYSTEM, content, Listing, chat_id
             )
-            body = save_and_render(listing, chat_id)
+            body = save_and_render(listing, chat_id, note)
         else:
             body = render_photo_result(
                 await asyncio.to_thread(ask_model, PHOTO_SYSTEM, content, PhotoResult, chat_id),
                 chat_id,
+                note,
             )
     except Exception:
         log.exception("photo handling failed for chat %s", chat_id)
@@ -487,19 +473,23 @@ async def flush_photos(context: ContextTypes.DEFAULT_TYPE) -> None:
     await context.bot.send_message(chat_id, body, parse_mode="HTML")
 
 
-def save_and_render(listing: Listing, chat_id: int) -> str:
+def save_and_render(listing: Listing, chat_id: int, facts: str = "") -> str:
     """Remember the item, scoped to this chat, so /followup can offer it later."""
     store.add(
-        chat_id, listing.title, listing.description_fr, listing.description_en
+        chat_id,
+        listing.title,
+        listing.description_fr,
+        listing.description_en,
+        facts,
     )
     return render_listing(listing)
 
 
-def render_photo_result(result: PhotoResult, chat_id: int) -> str:
+def render_photo_result(result: PhotoResult, chat_id: int, facts: str = "") -> str:
     if result.kind == "buyer_message" and result.reply:
         return render_reply(result.reply)
     if result.kind == "listing" and result.listing:
-        return save_and_render(result.listing, chat_id)
+        return save_and_render(result.listing, chat_id, facts)
     log.warning("empty %s result for chat %s", result.kind, chat_id)
     return "I couldn't read those images. Send them again, or paste the text."
 
@@ -565,6 +555,24 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(render_reply(r), parse_mode="HTML")
 
 
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the traceback and tell her something broke.
+
+    Without this, python-telegram-bot swallows every unhandled exception and
+    logs "No error handlers are registered" — so on a server she'd see a silent
+    non-answer with no clue why.
+    """
+    log.error("unhandled error", exc_info=context.error)
+    chat = getattr(update, "effective_chat", None)
+    if chat and is_allowed(update):
+        try:
+            await context.bot.send_message(
+                chat.id, "Something broke on my end. Try again."
+            )
+        except Exception:
+            log.exception("could not report the error to the chat")
+
+
 def main() -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).post_init(publish_commands).build()
@@ -584,6 +592,7 @@ def main() -> None:
         app.add_handler(MessageHandler(filters.Text([label]), handler))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.add_error_handler(on_error)
     log.info("running with model %s", MODEL)
     app.run_polling()
 

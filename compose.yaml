@@ -1,0 +1,22 @@
+services:
+  bot:
+    build: .
+    image: vinted-assistant
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Must come after env_file: .env ships ITEMS_PATH=items.json for local
+      # runs, which inside the container would point at a read-only directory
+      # that isn't on the volume. These win.
+      ITEMS_PATH: /data/items.json
+      USAGE_PATH: /data/usage.json
+    volumes:
+      - bot-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:

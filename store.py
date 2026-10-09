@@ -29,6 +29,7 @@ class Item(TypedDict):
     title: str
     description_fr: str
     description_en: str
+    facts: str  # her own caption: brand, size, condition, material, flaws
     status: str  # "active" | "sold"
 
 
@@ -54,7 +55,11 @@ def _owned(item: Item, chat_id: int) -> bool:
 
 
 def add(
-    chat_id: int, title: str, description_fr: str, description_en: str
+    chat_id: int,
+    title: str,
+    description_fr: str,
+    description_en: str,
+    facts: str = "",
 ) -> Item:
     items = _load()
     item: Item = {
@@ -63,6 +68,7 @@ def add(
         "title": title,
         "description_fr": description_fr,
         "description_en": description_en,
+        "facts": facts,
         "status": "active",
     }
     items.append(item)
@@ -97,7 +103,13 @@ def mark_sold(chat_id: int, item_id: str) -> Optional[Item]:
 
 
 def as_context(item: Item) -> str:
-    return (
-        f"Listing in question — {item['title']}\n"
-        f"{item['description_fr']}\n{item['description_en']}"
-    )
+    """What the bot knows about this item, for answering a buyer."""
+    parts = [
+        f"Listing in question — {item['title']}",
+        item["description_fr"],
+        item["description_en"],
+    ]
+    # Her own notes often answer a buyer's question that the prose doesn't.
+    if item.get("facts"):
+        parts.append(f"Facts the seller gave: {item['facts']}")
+    return "\n".join(parts)

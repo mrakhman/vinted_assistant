@@ -30,6 +30,51 @@ Commands are optional. Photos or text sent with no command still work — the bo
 whether it's looking at a garment or a conversation. The commands exist for when she wants to
 be explicit, and `/followup` is the only way to attach a *stored* description to a question.
 
+## Deploying to a server
+
+Docker isn't strictly required — a venv and a systemd unit work. It's used here because the
+target is someone else's machine: no Python version to negotiate, nothing installed on their
+box, and `restart: unless-stopped` covers crashes and reboots, which a bare `nohup` does not.
+
+On the server, once (needs Docker and the Compose plugin):
+
+```bash
+git clone git@github.com:mrakhman/vinted_assistant.git && cd vinted_assistant
+```
+
+Then create `.env` there — **copy it by hand, never commit it**. `scp` it over, or
+`cp .env.example .env` and fill it in. Leave `ITEMS_PATH` / `USAGE_PATH` as they are;
+`compose.yaml` overrides them to point at the volume.
+
+```bash
+docker compose up -d
+docker compose logs -f        # ctrl-C to stop watching; the bot keeps running
+```
+
+That's the whole deploy. It survives reboots.
+
+| Task | Command |
+|---|---|
+| Update after a `git push` | `git pull && docker compose up -d --build` |
+| Logs | `docker compose logs -f` (capped at 3 × 10 MB) |
+| Stop / start | `docker compose down` / `docker compose up -d` |
+| Read her item list | `docker compose exec bot cat /data/items.json` |
+| Back it up | `docker compose cp bot:/data/items.json ./items-backup.json` |
+| Restart after editing `.env` | `docker compose up -d` (env is read at startup) |
+
+Data lives in a Docker named volume (`bot-data`), not in the project directory, so
+`docker compose down` and rebuilds don't touch it. Only `docker compose down -v` deletes it.
+To keep the JSON files on the host instead — easier to edit by hand — swap the volume for
+`./data:/data` and run `mkdir -p data && sudo chown 10001:10001 data` first (10001 is the
+container's user).
+
+### One thing to know about someone else's server
+
+`.env` holds the OpenAI key, and anyone with root on that machine can read it. If the server
+owner is also the person using the bot, that's fine. It's another reason to use a dedicated
+key in its own project with a spend cap: the worst case is a capped bill on a key that does
+nothing else, revocable without touching anything you care about.
+
 ## Language rule
 
 **The bot speaks English. Only the listing text is bilingual.** Commands, prompts, labels,
