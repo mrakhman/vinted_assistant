@@ -45,7 +45,11 @@ Price: a EUR range for a quick sale on Vinted, not a maximum-value estimate. Sec
 clothing on Vinted sells low — anchor on that, not on retail price. Be honest when you cannot \
 identify the brand and the range has to be wide.
 
-If the photos are too poor to describe the item, say so in `notes` instead of guessing."""
+If the photos are too poor to describe the item, say so in `notes` instead of guessing.
+
+`notes` is the one field you address to her, not to buyers — write it in English, like the
+rest of what the bot says. Everything else (title, both descriptions) goes on the listing in
+the language stated above. Leave `notes` null when there is nothing she needs to act on."""
 
 REPLY_SYSTEM = """You help a private Vinted seller answer messages from buyers.
 

@@ -193,7 +193,8 @@ def ask_model(
     u = response.usage
     cost = u.input_tokens * IN_PRICE + u.output_tokens * OUT_PRICE
     log.info("%s in / %s out tokens — $%.3f", u.input_tokens, u.output_tokens, cost)
-    usage.record(chat_id, u.input_tokens, u.output_tokens, cost)
+    # Only tokens are stored; dollars are recomputed from .env on every read.
+    usage.record(chat_id, u.input_tokens, u.output_tokens)
     return response.output_parsed
 
 
